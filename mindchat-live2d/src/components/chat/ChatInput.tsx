@@ -4,9 +4,10 @@ import { motion } from 'framer-motion';
 interface ChatInputProps {
   onSend: (text: string) => void;
   disabled?: boolean;
+  onTypingChange?: (isTyping: boolean) => void;
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
+const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled, onTypingChange }) => {
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -17,6 +18,16 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
       inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 100) + 'px';
     }
   }, [text]);
+
+  // 通知父组件输入状态变化
+  const prevHasText = useRef(false);
+  useEffect(() => {
+    const hasText = text.trim().length > 0;
+    if (hasText !== prevHasText.current) {
+      prevHasText.current = hasText;
+      onTypingChange?.(hasText);
+    }
+  }, [text, onTypingChange]);
 
   const handleSend = () => {
     const trimmed = text.trim();

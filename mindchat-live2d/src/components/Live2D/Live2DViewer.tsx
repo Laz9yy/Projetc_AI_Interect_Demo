@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import * as PIXI from 'pixi.js';
 import type { Live2DModel } from 'pixi-live2d-display';
 import type { ExpressionType } from '../../types';
@@ -130,6 +130,24 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
 
       app.stage.addChild(model as any);
 
+      // ===== PIXI ticker 全局错误防御 =====
+      // Cubism 运行时在异步动画帧中可能抛出无法被同步 try/catch 捕获的错误
+      const tickerErrorHandler = (e: ErrorEvent) => {
+        if (e.message?.includes('is not a function') || e.message?.includes('v[')) {
+          e.preventDefault();
+          e.stopPropagation();
+          console.debug('[Live2D] Cubism ticker 内部错误已压制');
+        }
+      };
+      window.addEventListener('error', tickerErrorHandler);
+      // 模型销毁时移除监听
+      const origDestroy = (model as any).destroy;
+      (model as any).destroy = (...args: any[]) => {
+        window.removeEventListener('error', tickerErrorHandler);
+        return origDestroy?.apply(model, args);
+      };
+      // ===== 防御结束 =====
+
       setIsLoading(false);
       console.log('[Live2D C2] 加载成功 · 立绘尺寸', {
         scale: scale.toFixed(2),
@@ -158,6 +176,84 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
       initializedRef.current = false;
     };
   }, []);
+
+  // ===== 情绪→表情+动作驱动层（不改渲染核心）=====
+  const lastExprRef = useRef<ExpressionType>('neutral');
+  const lastMotionTimeRef = useRef(0);
+  const lastMotionKeyRef = useRef('');
+
+  // 情绪→面部表情ID映射
+  const EXPRESSION_IDS: Record<ExpressionType, string> = {
+    neutral: 'f00', happy: 'f01', sad: 'f02', surprised: 'f03',
+    shy: 'f04', angry: 'f05', relaxed: 'f06', thinking: 'f07',
+  };
+
+  // 情绪→动作映射（基于 model.json 中的 group + index）
+  const EMOTION_MOTIONS: Record<ExpressionType, { group: string; index: number }> = {
+    neutral:   { group: 'idle', index: 0 },
+    happy:     { group: '',     index: 2 },
+    sad:       { group: '',     index: 7 },
+    surprised: { group: '',     index: 1 },
+    shy:       { group: '',     index: 4 },
+    angry:     { group: '',     index: 6 },
+    thinking:  { group: '',     index: 8 },
+    relaxed:   { group: '',     index: 9 },
+  };
+
+  // 安全地调用模型方法（防崩溃 P1: 模型生存检查）
+  const callModelSafely = useCallback((fn: (model: Live2DModel) => void) => {
+    const model = modelRef.current;
+    if (!model) return;
+    try {
+      if ((model as any).destroyed) return;
+      fn(model);
+    } catch (e) {
+      console.debug('[Live2D] 模型调用忽略:', e);
+    }
+  }, []);
+
+  // 监听 expression prop 变化，驱动模型面部表情 + 身体动作
+  useEffect(() => {
+    if (isLoading || error) return;
+
+    // 同一表情不重复触发
+    if (expression === lastExprRef.current) return;
+    lastExprRef.current = expression;
+
+    callModelSafely((model) => {
+      // 1. 切换面部表情
+      const exprId = EXPRESSION_IDS[expression] || 'f00';
+      try { (model as any).expression?.(exprId); } catch { /* 模型可能不支持 expression API */ }
+
+      // 2. 播放身体动作（带间隔保护）
+      const motion = EMOTION_MOTIONS[expression];
+      if (!motion) return;
+
+      const now = Date.now();
+      const motionKey = motion.group + ':' + motion.index;
+      const sameMotion = motionKey === lastMotionKeyRef.current;
+      const tooSoon = now - lastMotionTimeRef.current < 1500;
+
+      if (!sameMotion || now - lastMotionTimeRef.current >= 3000) {
+        if (!tooSoon) {
+          lastMotionKeyRef.current = motionKey;
+          lastMotionTimeRef.current = now;
+          try { model.motion(motion.group, motion.index); } catch { /* motion 不存在时跳过 */ }
+        }
+      }
+    });
+  }, [expression, isLoading, error, callModelSafely]);
+
+  // 应用启动时播放 login 登场动画
+  useEffect(() => {
+    if (isLoading || error) return;
+    const timer = setTimeout(() => {
+      callModelSafely((model) => {
+        try { model.motion('', 0); } catch { /* login.mtn */ }
+      });
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [isLoading, error, callModelSafely]);
 
   return (
     <div ref={containerRef} className={`absolute inset-0 z-10 ${className}`}>

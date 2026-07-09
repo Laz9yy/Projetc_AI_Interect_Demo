@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChatBubble from './ChatBubble';
 import ChatInput from './ChatInput';
@@ -7,7 +7,7 @@ import PanelHeader from './PanelHeader';
 import { useChatStore } from '../../store/chatStore';
 
 const ChatWindow: React.FC = () => {
-  const { messages, isStreaming, sendMessage } = useChatStore();
+  const { messages, isStreaming, sendMessage, setExpression } = useChatStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -21,6 +21,15 @@ const ChatWindow: React.FC = () => {
   const handleQuickReply = (text: string) => {
     sendMessage(text);
   };
+
+  // 输入状态变化 → 驱动 thinking / neutral
+  const handleTypingChange = useCallback((isTyping: boolean) => {
+    if (isTyping) {
+      setExpression('thinking');
+    } else if (!isStreaming && messages.length === 0) {
+      setExpression('neutral');
+    }
+  }, [setExpression, isStreaming, messages.length]);
 
   return (
     <>
@@ -85,7 +94,7 @@ const ChatWindow: React.FC = () => {
             />
 
             {/* 底部消息输入栏 */}
-            <ChatInput onSend={sendMessage} disabled={isStreaming} />
+            <ChatInput onSend={sendMessage} disabled={isStreaming} onTypingChange={handleTypingChange} />
           </motion.div>
         )}
       </AnimatePresence>

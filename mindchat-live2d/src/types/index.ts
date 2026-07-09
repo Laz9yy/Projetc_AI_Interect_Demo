@@ -64,3 +64,21 @@ export interface ChatState {
   isStreaming: boolean;
   currentExpression: ExpressionType;
 }
+
+// ===== 表情动作时序配置 =====
+export const EXPRESSION_TIMING = {
+  /** inferExpression 防抖窗口间隔 (ms) */
+  INFER_DEBOUNCE_MS: 800,
+  /** inferExpression 启动所需的最小文本长度 */
+  MIN_TEXT_LENGTH: 8,
+  /** AI处理阶段 thinking 表情的最小保持时间 (ms) */
+  AI_PROCESSING_MIN_MS: 1200,
+  /** AI回复结束后，表情保持时间 (ms) */
+  HOLD_DURATION_MS: 6000,
+  /** 用户停止输入后，回归 idle 的延迟 (ms) */
+  USER_TYPING_IDLE_MS: 2000,
+  /** 两次身体动作之间的最小间隔 (ms) */
+  MOTION_MIN_INTERVAL_MS: 1500,
+  /** 同一情绪不重复触发的冷却时间 (ms) */
+  SAME_EXPRESSION_COOLDOWN_MS: 3000,
+} as const;

@@ -156,7 +156,8 @@ export async function* streamChat(
         const content = data.choices?.[0]?.delta?.content;
         if (content) {
           fullText += content;
-          yield { text: content, expression: inferExpression(fullText) };
+          const expr = fullText.length >= 8 ? inferExpression(fullText) : 'thinking';
+          yield { text: content, expression: expr };
         }
       } catch {
         // 跳过解析错误的行
