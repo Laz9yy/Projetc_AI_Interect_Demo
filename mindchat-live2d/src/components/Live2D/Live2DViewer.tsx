@@ -201,14 +201,20 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
   };
 
   // 安全地调用模型方法（防崩溃 P1: 模型生存检查）
-  const callModelSafely = useCallback((fn: (model: Live2DModel) => void) => {
+  const callModelSafely = useCallback((fn: (model: Live2DModel) => void, tag?: string) => {
     const model = modelRef.current;
-    if (!model) return;
+    if (!model) {
+      console.debug(`[Live2D] callModelSafely 跳过(${tag || '?'}): modelRef 为 null`);
+      return;
+    }
     try {
-      if ((model as any).destroyed) return;
+      if ((model as any).destroyed) {
+        console.debug(`[Live2D] callModelSafely 跳过(${tag || '?'}): model 已销毁`);
+        return;
+      }
       fn(model);
     } catch (e) {
-      console.debug('[Live2D] 模型调用忽略:', e);
+      console.warn(`[Live2D] callModelSafely 异常(${tag || '?'}):`, e);
     }
   }, []);
 
@@ -216,8 +222,11 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
   useEffect(() => {
     if (isLoading || error) return;
 
-    // 同一表情不重复触发
-    if (expression === lastExprRef.current) return;
+    // 初始化：expression='neutral' + lastExprRef='neutral' 时也播放一次 idle
+    const isInitial = lastExprRef.current === 'neutral' && expression === 'neutral' && lastMotionKeyRef.current === '';
+
+    // 同一表情不重复触发（初始化时除外）
+    if (!isInitial && expression === lastExprRef.current) return;
     lastExprRef.current = expression;
 
     callModelSafely((model) => {
@@ -229,17 +238,38 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
       const motion = EMOTION_MOTIONS[expression];
       if (!motion) return;
 
-      const now = Date.now();
       const motionKey = motion.group + ':' + motion.index;
       const sameMotion = motionKey === lastMotionKeyRef.current;
-      const tooSoon = now - lastMotionTimeRef.current < 1500;
+      const now = Date.now();
+      const elapsedSinceLastMotion = now - lastMotionTimeRef.current;
 
-      if (!sameMotion || now - lastMotionTimeRef.current >= 3000) {
-        if (!tooSoon) {
-          lastMotionKeyRef.current = motionKey;
-          lastMotionTimeRef.current = now;
-          try { model.motion(motion.group, motion.index); } catch { /* motion 不存在时跳过 */ }
+      // 策略：同一动作冷却 3 秒；不同动作冷却仅 300ms；首次调用不检查
+      const shouldPlay =
+        lastMotionKeyRef.current === ''
+          ? true                                           // 首次调用，立即播放
+          : sameMotion
+            ? elapsedSinceLastMotion >= 3000               // 同一动作需要 3 秒冷却
+            : elapsedSinceLastMotion >= 300;               // 不同动作仅需 300ms 间隔
+
+      if (shouldPlay) {
+        lastMotionKeyRef.current = motionKey;
+        lastMotionTimeRef.current = now;
+        try {
+          model.motion(motion.group, motion.index);
+          console.log(
+            `[Live2D] 动作播放: group="${motion.group}" index=${motion.index} ` +
+            `(情绪=${expression}, 距上次=${elapsedSinceLastMotion}ms)`
+          );
+        } catch (e) {
+          console.warn(
+            `[Live2D] 动作失败: group="${motion.group}" index=${motion.index}`, e
+          );
         }
+      } else {
+        console.log(
+          `[Live2D] 动作跳过: group="${motion.group}" index=${motion.index} ` +
+          `(情绪=${expression}, sameMotion=${sameMotion}, 距上次=${elapsedSinceLastMotion}ms)`
+        );
       }
     });
   }, [expression, isLoading, error, callModelSafely]);
@@ -249,8 +279,16 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
     if (isLoading || error) return;
     const timer = setTimeout(() => {
       callModelSafely((model) => {
-        try { model.motion('', 0); } catch { /* login.mtn */ }
-      });
+        try {
+          model.motion('', 0);
+          // 同步更新动作时间戳，使后续情绪动作的间隔计算正确
+          lastMotionTimeRef.current = Date.now();
+          lastMotionKeyRef.current = ':0';
+          console.log('[Live2D] 登录动画播放: login.mtn (group="" index=0)');
+        } catch (e) {
+          console.warn('[Live2D] 登录动画失败:', e);
+        }
+      }, 'login');
     }, 600);
     return () => clearTimeout(timer);
   }, [isLoading, error, callModelSafely]);

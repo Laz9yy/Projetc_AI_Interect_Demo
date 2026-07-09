@@ -68,7 +68,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }));
 
     try {
-      let lastExpr = 'neutral';
+      // 从 store 当前状态读取，与第 53 行的 set({ currentExpression: 'thinking' }) 保持一致
+      let lastExpr: string = get().currentExpression;
 
       if (settings.isConfigured) {
         // ===== AI 流式模式（带防抖）=====
