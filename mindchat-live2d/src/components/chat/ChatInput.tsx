@@ -15,7 +15,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled, onTypingChange 
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 100) + 'px';
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + 'px';
     }
   }, [text]);
 
@@ -78,9 +78,9 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled, onTypingChange 
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="说点什么吧…"
-          rows={1}
+          rows={2}
           disabled={disabled}
-          className="flex-1 bg-transparent text-white/80 text-sm outline-none resize-none placeholder:text-white/20 max-h-[80px]"
+          className="flex-1 bg-transparent text-white/80 text-sm outline-none resize-none placeholder:text-white/20 max-h-[160px]"
         />
         <motion.button
           onClick={handleSend}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Live2DViewer from './components/Live2D/Live2DViewer';
 import ChatWindow from './components/chat/ChatWindow';
 import SceneBackground from './components/scene/SceneBackground';
@@ -12,15 +12,15 @@ import { expressionList } from './data/expressions';
 function App() {
   const { currentExpression } = useChatStore();
   const [selectedChar] = useState(0);
-  const greetedRef = useRef(false);
+  const [chatRatio, setChatRatio] = useState(0.25);
+  const isDragging = useRef(false);
 
   const character = characterPresets[selectedChar];
   const currentExprConfig = expressionList.find((e) => e.id === currentExpression);
 
-  // 应用启动时显示角色问候语（延迟等 Live2D login 动画播放）
+  // 每次页面刷新先清空历史消息再发送问候语
   useEffect(() => {
-    if (greetedRef.current) return;
-    greetedRef.current = true;
+    useChatStore.getState().clearMessages();
 
     const timer = setTimeout(() => {
       useChatStore.getState().addMessage('assistant', character.greeting, 'shy');
@@ -28,6 +28,67 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [character.greeting]);
+
+  // 拖拽分栏 —— 鼠标按下把手开始跟踪
+  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  // 全局鼠标/触摸移动 + 释放
+  useEffect(() => {
+    let rafId: number | null = null;
+
+    const handleDragMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      if (rafId !== null) return;
+      const clientY = e.clientY;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const newRatio = 1 - clientY / window.innerHeight;
+        setChatRatio(Math.max(0.15, Math.min(0.60, newRatio)));
+      });
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!isDragging.current) return;
+      if (rafId !== null) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      const clientY = touch.clientY;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const newRatio = 1 - clientY / window.innerHeight;
+        setChatRatio(Math.max(0.15, Math.min(0.60, newRatio)));
+      });
+    };
+
+    const handleDragEnd = () => {
+      isDragging.current = false;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    window.addEventListener('mousemove', handleDragMove);
+    window.addEventListener('mouseup', handleDragEnd);
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleDragEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleDragEnd);
+    };
+  }, []);
+
+  const live2dHeight = `${(1 - chatRatio) * 100}vh`;
+  const chatHeight = `${chatRatio * 100}vh`;
 
   return (
     <div className="relative w-screen h-screen flex flex-col overflow-hidden"
@@ -37,7 +98,7 @@ function App() {
       <SettingsPanel />
 
       {/* ===== 上层：场景 + Live2D 角色展示区 (75vh) ===== */}
-      <div className="relative w-full overflow-hidden" style={{ height: '75vh' }}>
+      <div className="relative w-full overflow-hidden" style={{ height: live2dHeight }}>
         {/* 场景背景 */}
         <SceneBackground />
 
@@ -58,8 +119,15 @@ function App() {
         <ProjectCredit />
       </div>
 
-      {/* ===== 下层：通栏对话交互面板 (25vh) ===== */}
-      <div className="glass-panel w-full z-30 flex flex-col" style={{ height: '25vh' }}>
+      {/* ===== 拖拽把手：向上拉动扩大聊天区 ===== */}
+      <div
+        className="chat-resize-handle"
+        onMouseDown={handleDragStart}
+        onTouchStart={handleDragStart}
+      />
+
+      {/* ===== 下层：通栏对话交互面板 ===== */}
+      <div className="glass-panel w-full z-30 flex flex-col" style={{ height: chatHeight }}>
         <ChatWindow />
       </div>
     </div>

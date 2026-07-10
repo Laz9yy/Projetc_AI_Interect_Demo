@@ -21,6 +21,8 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [touchPulse, setTouchPulse] = useState(false); // P2-1: 触摸视觉反馈
+  const originalModelWidthRef = useRef(1024);
+  const originalModelHeightRef = useRef(1024);
 
   // 修复4: modelUrl 变化时重置状态，清除旧错误与初始化标志
   React.useEffect(() => {
@@ -122,6 +124,9 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
       // Galgame 大立绘：人物占上层 60% 高度，居中定位底部
       const modelW = (model as any)?.width || 1024;
       const modelH = (model as any)?.height || 1024;
+      // 保存原始纹理尺寸（scale=1 时），供 ResizeObserver 使用，避免反馈循环
+      originalModelWidthRef.current = modelW;
+      originalModelHeightRef.current = modelH;
       const targetH = h * 0.6;
       const scale = Math.min(targetH / modelH, (w * 0.5) / modelW) * 1.15;
       model.scale.set(scale);
@@ -177,6 +182,57 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
       initializedRef.current = false;
     };
   }, []);
+
+  // ResizeObserver: 拖拽分栏时容器尺寸变化 → 自适应模型尺寸与位置
+  useEffect(() => {
+    if (isLoading || error) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    let rafId: number | null = null;
+
+    const observer = new ResizeObserver(() => {
+      // rAF 节流：避免拖拽时每帧触发多次 resize 导致的振荡
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+
+        const app = appRef.current;
+        const model = modelRef.current;
+        const canvas = canvasRef.current;
+        if (!app || !model || !container || !canvas) return;
+
+        const rect = container.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+        if (w === 0 || h === 0) return;
+
+        // 更新 canvas 物理像素（与 init 一致的 pixelRatio 策略）
+        const pixelRatio = Math.min(window.devicePixelRatio, 2);
+        canvas.width = w * pixelRatio;
+        canvas.height = h * pixelRatio;
+
+        // 更新 PIXI 渲染器（带物理分辨率）
+        app.renderer.resolution = pixelRatio;
+        app.renderer.resize(w, h);
+
+        // 使用 init 时保存的原始尺寸计算缩放，避免 PIXI width 含 scale 的反馈循环
+        const modelW = originalModelWidthRef.current;
+        const modelH = originalModelHeightRef.current;
+        const targetH = h * 0.6;
+        const scale = Math.min(targetH / modelH, (w * 0.5) / modelW) * 1.15;
+        model.scale.set(scale);
+        model.x = w / 2;
+        model.y = h * 0.65;
+      });
+    });
+
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [isLoading, error]);
 
   // ===== 情绪→表情+动作驱动层（不改渲染核心）=====
   const lastExprRef = useRef<ExpressionType>('neutral');
