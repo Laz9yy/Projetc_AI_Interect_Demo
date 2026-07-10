@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { ChatMessage, ExpressionType } from '../types';
 import { streamChat, simulateChat } from '../services/ai';
 import { useSettingsStore } from './settingsStore';
+import { inferExpression } from '../data/expressions';
 
 interface ChatStore {
   messages: ChatMessage[];
@@ -43,14 +44,29 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     // 清除旧的 HOLD timer，新消息中断旧表情保持
     if (holdTimerRef) { window.clearTimeout(holdTimerRef); holdTimerRef = null; }
 
+    // 优化2: 用户情绪即时检测 — 先对用户消息做情绪推断
+    const userExpr = inferExpression(content);
+    const empathyExpr: ExpressionType =
+      userExpr === 'sad' || userExpr === 'angry' || userExpr === 'happy' || userExpr === 'surprised'
+        ? userExpr
+        : 'thinking';
+
     // 添加用户消息
     addMessage('user', content);
 
     // 重新获取最新消息列表（含刚添加的用户消息）
     const { messages } = get();
 
-    // 发送消息时立即进入 thinking 状态
-    set({ currentExpression: 'thinking' as ExpressionType });
+    // 发送消息时显示共情表情（若有强情绪）或 thinking
+    set({ currentExpression: empathyExpr });
+
+    // 共情表情保持 1.5s，之后过渡到 thinking（让 AI 回复接管）
+    let empathyTimer: ReturnType<typeof setTimeout> | null = null;
+    if (empathyExpr !== 'thinking') {
+      empathyTimer = setTimeout(() => {
+        set({ currentExpression: 'thinking' as ExpressionType });
+      }, 1500);
+    }
 
     // 创建 AI 回复占位
     const aiMsgId = uid();
@@ -142,12 +158,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
       }
 
+      // 清除共情 timer（AI 已开始回复，无需手动过渡）
+      if (empathyTimer) clearTimeout(empathyTimer);
+
       set((s) => ({ isStreaming: false, currentExpression: lastExpr as ExpressionType }));
 
-      // HOLD → IDLE: 6秒后回归平静
+      // 优化5: HOLD → IDLE: 先 relaxed 过渡 500ms，再回归 neutral
       holdTimerRef = window.setTimeout(() => {
-        set({ currentExpression: 'neutral' as ExpressionType });
-      }, 6000);
+        set({ currentExpression: 'relaxed' as ExpressionType });
+        // 二层 timer: relaxed 保持 1.5s → neutral
+        holdTimerRef = window.setTimeout(() => {
+          set({ currentExpression: 'neutral' as ExpressionType });
+          holdTimerRef = null;
+        }, 1500);
+      }, 5000);
     } catch (err) {
       console.error('sendMessage 错误:', err);
       set((s) => ({

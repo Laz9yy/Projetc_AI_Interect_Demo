@@ -200,7 +200,56 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
     relaxed:   { group: '',     index: 9 },
   };
 
-  // 安全地调用模型方法（防崩溃 P1: 模型生存检查）
+  // 优化4: 安全的表情切换 — 主 API + Cubism2 参数回退
+  const applyExpression = useCallback((model: Live2DModel, exprId: string) => {
+    // 路径A: pixi-live2d-display 标准 expression() API
+    try {
+      if (typeof (model as any).expression === 'function') {
+        (model as any).expression(exprId);
+        console.debug(`[Live2D] 表情切换: ${exprId} (standard API)`);
+        return;
+      }
+    } catch {
+      console.debug(`[Live2D] expression() 标准 API 失败，尝试 Cubism2 回退...`);
+    }
+
+    // 路径B: Cubism2 内部参数直设回退
+    try {
+      const internal = (model as any).internalModel;
+      const core = internal?.coreModel;
+      if (core && typeof core.setParameterValueById === 'function') {
+        // 表情参数映射: Cubism2 SDK 标准 PARAM_ID
+        const EXPR_PARAMS: Record<string, Array<{ id: string; value: number }>> = {
+          'f00': [], // neutral — 复位所有到默认值
+          'f01': [{ id: 'PARAM_EXPRESSION_JOY', value: 1 }],
+          'f02': [{ id: 'PARAM_EXPRESSION_SADNESS', value: 1 }],
+          'f03': [{ id: 'PARAM_EXPRESSION_SURPRISE', value: 1 }],
+          'f04': [{ id: 'PARAM_EXPRESSION_SHY', value: 1 }],
+          'f05': [{ id: 'PARAM_EXPRESSION_ANGER', value: 1 }],
+          'f06': [{ id: 'PARAM_EXPRESSION_RELAXED', value: 1 }],
+          'f07': [{ id: 'PARAM_EXPRESSION_THINKING', value: 1 }],
+        };
+        const params = EXPR_PARAMS[exprId] || [];
+        if (params.length === 0 && exprId === 'f00') {
+          // neutral: 复位所有表情参数
+          const allExprParams = ['PARAM_EXPRESSION_JOY','PARAM_EXPRESSION_SADNESS','PARAM_EXPRESSION_SURPRISE','PARAM_EXPRESSION_SHY','PARAM_EXPRESSION_ANGER','PARAM_EXPRESSION_RELAXED','PARAM_EXPRESSION_THINKING'];
+          allExprParams.forEach((p) => {
+            try { core.setParameterValueById(p, 0); } catch {}
+          });
+        } else {
+          params.forEach(({ id, value }) => {
+            try { core.setParameterValueById(id, value); } catch {}
+          });
+        }
+        console.debug(`[Live2D] 表情切换: ${exprId} (Cubism2 参数回退)`);
+        return;
+      }
+    } catch (e) {
+      console.warn(`[Live2D] Cubism2 参数回退也失败了:`, e);
+    }
+
+    console.debug(`[Live2D] 表情切换: ${exprId} 不可用（模型不支持表情 API）`);
+  }, []);
   const callModelSafely = useCallback((fn: (model: Live2DModel) => void, tag?: string) => {
     const model = modelRef.current;
     if (!model) {
@@ -230,9 +279,9 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
     lastExprRef.current = expression;
 
     callModelSafely((model) => {
-      // 1. 切换面部表情
+      // 1. 切换面部表情（优化4: 双路径回退保护）
       const exprId = EXPRESSION_IDS[expression] || 'f00';
-      try { (model as any).expression?.(exprId); } catch { /* 模型可能不支持 expression API */ }
+      applyExpression(model, exprId);
 
       // 2. 播放身体动作（带间隔保护）
       const motion = EMOTION_MOTIONS[expression];
