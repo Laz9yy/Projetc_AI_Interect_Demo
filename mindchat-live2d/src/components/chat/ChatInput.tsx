@@ -29,6 +29,17 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled, onTypingChange 
     }
   }, [text, onTypingChange]);
 
+  // AI 回复完成后自动恢复输入框焦点
+  const prevDisabledRef = useRef(disabled);
+  useEffect(() => {
+    if (prevDisabledRef.current && !disabled) {
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    }
+    prevDisabledRef.current = disabled;
+  }, [disabled]);
+
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed || disabled) return;

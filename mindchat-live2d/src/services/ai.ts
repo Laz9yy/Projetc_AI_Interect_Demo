@@ -17,7 +17,7 @@ function truncateMessages(
   maxMessages: number,
 ): { role: string; content: string }[] {
   const systemTokens = estimateTokens(systemPrompt);
-  let budget = maxTokens - systemTokens - 300; // 预留 300 给回复
+  let budget = maxTokens - systemTokens - 2000; // 预留 2000 给回复
 
   const result: { role: string; content: string }[] = [
     { role: 'system', content: systemPrompt },
@@ -107,7 +107,7 @@ export async function* streamChat(
         model: config.model,
         messages: apiMessages,
         stream: true,
-        max_tokens: 300,
+        max_tokens: 2000,
         temperature: config.temperature ?? 0.8,
       }),
     },
