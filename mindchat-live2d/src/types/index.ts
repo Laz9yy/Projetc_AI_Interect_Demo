@@ -82,3 +82,20 @@ export const EXPRESSION_TIMING = {
   /** 同一情绪不重复触发的冷却时间 (ms) */
   SAME_EXPRESSION_COOLDOWN_MS: 3000,
 } as const;
+
+// ===== Live2D 交互系统配置 =====
+export const INTERACTION_CONFIG = {
+  /** 触摸冷却时间 (ms) */
+  TOUCH_COOLDOWN_MS: 2000,
+  /** 空闲超时自发小动作间隔 (ms) */
+  AUTO_MOTION_INTERVAL_MS: 20000,
+  /** idle 循环重播间隔 (ms, 略短于动作时长确保无缝) */
+  IDLE_LOOP_INTERVAL_MS: 2500,
+  /** 动作优先级权重: 1=login 2=touch 3=emotion 4=idle (数字越小越高) */
+  MOTION_PRIORITY: {
+    LOGIN: 1,
+    TOUCH: 2,
+    EMOTION: 3,
+    IDLE: 4,
+  } as const,
+} as const;

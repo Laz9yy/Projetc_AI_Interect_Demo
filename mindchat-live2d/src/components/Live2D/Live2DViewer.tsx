@@ -20,6 +20,7 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
   const initializedRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [touchPulse, setTouchPulse] = useState(false); // P2-1: 触摸视觉反馈
 
   // 修复4: modelUrl 变化时重置状态，清除旧错误与初始化标志
   React.useEffect(() => {
@@ -189,15 +190,16 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
   };
 
   // 情绪→动作映射（基于 model.json 中的 group + index）
-  const EMOTION_MOTIONS: Record<ExpressionType, { group: string; index: number }> = {
-    neutral:   { group: 'idle', index: 0 },
-    happy:     { group: '',     index: 2 },
-    sad:       { group: '',     index: 7 },
-    surprised: { group: '',     index: 1 },
-    shy:       { group: '',     index: 4 },
-    angry:     { group: '',     index: 6 },
-    thinking:  { group: '',     index: 8 },
-    relaxed:   { group: '',     index: 9 },
+  // P1-1: 改为数组支持随机动作变体，利用率 9/12 → 12/12
+  const EMOTION_MOTIONS: Record<ExpressionType, Array<{ group: string; index: number }>> = {
+    neutral:   [{ group: 'idle', index: 0 }],
+    happy:     [{ group: '',     index: 2 }, { group: '', index: 3 }],   // touch_1 or touch_2
+    sad:       [{ group: '',     index: 7 }],
+    surprised: [{ group: '',     index: 1 }],
+    shy:       [{ group: '',     index: 4 }, { group: '', index: 5 }],   // touch_3 or touch_4
+    angry:     [{ group: '',     index: 6 }],
+    thinking:  [{ group: '',     index: 8 }],
+    relaxed:   [{ group: '',     index: 9 }, { group: '', index: 10 }],  // wedding or wedding_touch
   };
 
   // 优化4: 安全的表情切换 — 主 API + Cubism2 参数回退
@@ -267,6 +269,36 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
     }
   }, []);
 
+  // ===== P2-2: 动作优先级系统 (必须在 emotion useEffect 之前定义) =====
+  // 优先级: 1=login 2=触摸 3=情绪 4=idle (数字越小越高)
+  const motionPriorityRef = useRef(0);
+  const priorityTimerRef = useRef<number | null>(null);
+
+  const resetPriorityAfterDelay = useCallback((delayMs = 500) => {
+    if (priorityTimerRef.current) clearTimeout(priorityTimerRef.current);
+    priorityTimerRef.current = window.setTimeout(() => {
+      motionPriorityRef.current = 0;
+      priorityTimerRef.current = null;
+    }, delayMs);
+  }, []);
+
+  const tryPlayMotion = useCallback((
+    model: Live2DModel,
+    group: string,
+    index: number,
+    priority: number,
+    durationMs = 500
+  ): boolean => {
+    if (motionPriorityRef.current > 0 && priority >= motionPriorityRef.current) {
+      console.debug(`[Live2D] 动作拒绝(优先级): 当前P${motionPriorityRef.current} ≥ 请求P${priority}`);
+      return false;
+    }
+    motionPriorityRef.current = priority;
+    model.motion(group, index);
+    resetPriorityAfterDelay(durationMs);
+    return true;
+  }, [resetPriorityAfterDelay]);
+
   // 监听 expression prop 变化，驱动模型面部表情 + 身体动作
   useEffect(() => {
     if (isLoading || error) return;
@@ -283,9 +315,10 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
       const exprId = EXPRESSION_IDS[expression] || 'f00';
       applyExpression(model, exprId);
 
-      // 2. 播放身体动作（带间隔保护）
-      const motion = EMOTION_MOTIONS[expression];
-      if (!motion) return;
+      // 2. 播放身体动作（带间隔保护 + P1-1 随机变体）
+      const motionPool = EMOTION_MOTIONS[expression];
+      if (!motionPool || motionPool.length === 0) return;
+      const motion = motionPool[Math.floor(Math.random() * motionPool.length)];
 
       const motionKey = motion.group + ':' + motion.index;
       const sameMotion = motionKey === lastMotionKeyRef.current;
@@ -303,15 +336,11 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
       if (shouldPlay) {
         lastMotionKeyRef.current = motionKey;
         lastMotionTimeRef.current = now;
-        try {
-          model.motion(motion.group, motion.index);
+        // P2-2: 情绪动作优先级 3
+        if (tryPlayMotion(model, motion.group, motion.index, 3, 2000)) {
           console.log(
             `[Live2D] 动作播放: group="${motion.group}" index=${motion.index} ` +
             `(情绪=${expression}, 距上次=${elapsedSinceLastMotion}ms)`
-          );
-        } catch (e) {
-          console.warn(
-            `[Live2D] 动作失败: group="${motion.group}" index=${motion.index}`, e
           );
         }
       } else {
@@ -321,30 +350,128 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
         );
       }
     });
-  }, [expression, isLoading, error, callModelSafely]);
+  }, [expression, isLoading, error, callModelSafely, tryPlayMotion]);
 
-  // 应用启动时播放 login 登场动画
+  // 应用启动时播放 login 登场动画 (P2-2: 优先级1 最高)
   useEffect(() => {
     if (isLoading || error) return;
     const timer = setTimeout(() => {
       callModelSafely((model) => {
-        try {
-          model.motion('', 0);
-          // 同步更新动作时间戳，使后续情绪动作的间隔计算正确
-          lastMotionTimeRef.current = Date.now();
-          lastMotionKeyRef.current = ':0';
-          console.log('[Live2D] 登录动画播放: login.mtn (group="" index=0)');
-        } catch (e) {
-          console.warn('[Live2D] 登录动画失败:', e);
-        }
+        tryPlayMotion(model, '', 0, 1, 4000);
+        lastMotionTimeRef.current = Date.now();
+        lastMotionKeyRef.current = ':0';
+        console.log('[Live2D] 登录动画播放: login.mtn (group="" index=0)');
       }, 'login');
     }, 600);
     return () => clearTimeout(timer);
-  }, [isLoading, error, callModelSafely]);
+  }, [isLoading, error, callModelSafely, tryPlayMotion]);
+
+  // ===== P0-2: 点击/触摸交互系统 =====
+  const lastTouchTimeRef = useRef(0);
+  const TOUCH_COOLDOWN = 2000;
+
+  // 触摸动作池: 基于 model.json hit_areas (head/body/hand) 三区映射
+  const handleCanvasClick = useCallback((e: PointerEvent) => {
+    const now = Date.now();
+    if (now - lastTouchTimeRef.current < TOUCH_COOLDOWN) return;
+    if (isLoading || error) return;
+
+    callModelSafely((model) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect || !canvasRef.current) return;
+      const x = (e.clientX - rect.left) * (canvasRef.current.width / rect.width);
+      const y = (e.clientY - rect.top) * (canvasRef.current.height / rect.height);
+
+      // hitTest 尝试 / 坐标粗判回退
+      let hitArea = 'body';
+      try {
+        if (typeof (model as any).hitTest === 'function') {
+          const hit = (model as any).hitTest(x, y);
+          if (hit) hitArea = hit;
+        }
+      } catch {
+        const modelCenterY = rect.height * 0.4;
+        if (y < modelCenterY * 0.7) hitArea = 'head';
+        else if (y > modelCenterY * 1.3) hitArea = 'hand';
+      }
+
+      // 部位 → 动作池
+      let pool: number[];
+      switch (hitArea) {
+        case 'head': pool = [2, 3]; break;   // touch_1, touch_2
+        case 'hand': pool = [5, 6]; break;   // touch_4, touch_5
+        default:     pool = [4];     break;   // touch_3 (body)
+      }
+      const idx = pool[Math.floor(Math.random() * pool.length)];
+
+      if (tryPlayMotion(model, '', idx, 2, 1500)) {
+        lastTouchTimeRef.current = now;
+        // P2-1: 视觉反馈脉冲
+        setTouchPulse(true);
+        setTimeout(() => setTouchPulse(false), 400);
+        console.log(`[Live2D] 触摸交互: hit=${hitArea}, motion=${idx}`);
+      }
+    }, 'touch');
+  }, [isLoading, error, callModelSafely, tryPlayMotion]);
+
+  // 绑定/解绑 canvas 触摸事件 (pointerdown 兼容桌面+移动端)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || isLoading || error) return;
+    canvas.addEventListener('pointerdown', handleCanvasClick);
+    canvas.style.cursor = 'pointer';
+    return () => canvas.removeEventListener('pointerdown', handleCanvasClick);
+  }, [isLoading, error, handleCanvasClick]);
+
+  // ===== P0-1: idle 动作循环播放 =====
+  const idleTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isLoading || error) return;
+    if (expression !== 'neutral') {
+      if (idleTimerRef.current) { clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
+      return;
+    }
+    const playIdle = () => {
+      callModelSafely((model) => {
+        tryPlayMotion(model, 'idle', 0, 4, 3000);
+      }, 'idle-loop');
+      idleTimerRef.current = window.setTimeout(playIdle, 2500); // 提前500ms重播无缝衔接
+    };
+    playIdle();
+    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
+  }, [expression, isLoading, error, callModelSafely, tryPlayMotion]);
+
+  // ===== P1-2: 空闲超时自发小动作 =====
+  const autoMotionTimerRef = useRef<number | null>(null);
+  const IDLE_AUTO_MOTIONS = [
+    { group: '', index: 7 },  // wait_1
+    { group: '', index: 8 },  // wait_2
+  ];
+  const AUTO_MOTION_INTERVAL = 20000; // 20秒
+
+  const scheduleAutoMotion = useCallback(() => {
+    if (autoMotionTimerRef.current) clearTimeout(autoMotionTimerRef.current);
+    autoMotionTimerRef.current = window.setTimeout(() => {
+      callModelSafely((model) => {
+        const m = IDLE_AUTO_MOTIONS[Math.floor(Math.random() * IDLE_AUTO_MOTIONS.length)];
+        tryPlayMotion(model, m.group, m.index, 3, 1500);
+        console.log(`[Live2D] 自发动作: group="${m.group}" index=${m.index}`);
+      }, 'auto-motion');
+      scheduleAutoMotion();
+    }, AUTO_MOTION_INTERVAL);
+  }, [callModelSafely, tryPlayMotion]);
+
+  useEffect(() => {
+    if (isLoading || error) return;
+    if (expression === 'neutral') scheduleAutoMotion();
+    else { if (autoMotionTimerRef.current) clearTimeout(autoMotionTimerRef.current); }
+    return () => { if (autoMotionTimerRef.current) clearTimeout(autoMotionTimerRef.current); };
+  }, [expression, isLoading, error, scheduleAutoMotion]);
 
   return (
     <div ref={containerRef} className={`absolute inset-0 z-10 ${className}`}>
-      <canvas ref={canvasRef} className="block w-full h-full" />
+      <canvas ref={canvasRef} className={`block w-full h-full ${touchPulse ? 'animate-pulse' : ''}`} />
       {isLoading && !error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0A0A1A]/60 z-20">
           <div className="flex gap-1.5 mb-3">
