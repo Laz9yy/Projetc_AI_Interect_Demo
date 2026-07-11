@@ -1,13 +1,19 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSettingsStore } from '../../store/settingsStore';
+import { usePersonalityStore } from '../../store/personalityStore';
+import { getPersonalityById } from '../../data/personalities';
 import { aiProviders, getProvider } from '../../services/providers';
+import PersonalityEditor from './PersonalityEditor';
 
 const SettingsPanel: React.FC = () => {
   const [open, setOpen] = useState(false);
+  const [showPersonalityEditor, setShowPersonalityEditor] = useState(false);
   const { config, isConfigured, updateConfig, resetConfig } = useSettingsStore();
+  const { activeId } = usePersonalityStore();
 
   const currentProvider = getProvider(config.provider);
+  const activePersonality = getPersonalityById(activeId || 'default');
 
   return (
     <>
@@ -118,8 +124,41 @@ const SettingsPanel: React.FC = () => {
               </>
             )}
 
+            {/* 人物性格修改入口 */}
+            <div className="mb-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <button
+                onClick={() => setShowPersonalityEditor(!showPersonalityEditor)}
+                className="w-full px-3 py-2.5 rounded-lg text-xs transition-all text-left flex items-center justify-between"
+                style={{
+                  background: showPersonalityEditor
+                    ? 'rgba(124,92,252,0.1)'
+                    : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${showPersonalityEditor ? 'rgba(124,92,252,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                }}
+              >
+                <span className="flex items-center gap-2">
+                  <span>🎭</span>
+                  <span className="text-white/60">修改人物性格</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span style={{ color: activePersonality?.color || '#7C5CFC' }} className="text-[10px]">
+                    {activePersonality?.emoji} {activePersonality?.name}
+                  </span>
+                  <span className="text-white/20 text-[10px]">
+                    {showPersonalityEditor ? '▲' : '▼'}
+                  </span>
+                </span>
+              </button>
+
+              <AnimatePresence>
+                {showPersonalityEditor && (
+                  <PersonalityEditor onClose={() => setShowPersonalityEditor(false)} />
+                )}
+              </AnimatePresence>
+            </div>
+
             {/* 操作按钮 */}
-            <div className="flex gap-2 mt-4">
+            <div className="flex gap-2 mt-4"> 
               <button
                 onClick={() => setOpen(false)}
                 className="flex-1 py-2 rounded-lg text-sm text-white/40 transition-colors hover:text-white/60"

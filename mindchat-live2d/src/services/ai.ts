@@ -169,42 +169,137 @@ export async function* streamChat(
 // ===== 模拟 AI 回复 (无 API Key 时的离线模式) =====
 export async function* simulateChat(
   userMessage: string,
+  personalityId?: string | null,
 ): AsyncGenerator<{ text: string; expression: string }> {
   const lowerMsg = userMessage.toLowerCase();
   let response = '';
   let expression = 'neutral';
 
+  // 根据性格选择回复风格
+  const style = personalityId || 'default';
+
   if (/你好|hi|hello|嗨/.test(lowerMsg)) {
-    response = '你好呀！今天过得怎么样呀？有什么想聊的吗～';
     expression = 'happy';
+    const map: Record<string, string> = {
+      tsundere: '哼，指挥官你终于来了啊…我才没有一直在等你呢！',
+      gentle: '指挥官，你好呀～今天也请多关照呢～',
+      sharp: '啧，终于出现了？我还以为你把我忘了呢，指挥官。',
+      genki: '指挥官好！！今天也充满干劲地出发吧耶 ✨',
+      lazy: '嗯…来了啊。有什么就说吧，我听着…',
+      default: '指挥官，我在。有什么事？',
+    };
+    response = map[style] || map.default;
   } else if (/开心|高兴|快乐|哈哈/.test(lowerMsg)) {
-    response = '看到你开心我也很高兴呢！分享快乐会让快乐加倍哦～';
     expression = 'happy';
+    const map: Record<string, string> = {
+      tsundere: '哼…你开心就好，我又不是为了你才高兴的！',
+      gentle: '看到指挥官开心，我也觉得很幸福呢～',
+      sharp: '呵，笑那么开心？不过…总比哭丧着脸好。',
+      genki: '太好了！！指挥官开心我也超开心的！(◕‿◕)',
+      lazy: '高兴就好…能让你开心的事多半是好事情。',
+      default: '指挥官心情不错。继续保持。',
+    };
+    response = map[style] || map.default;
   } else if (/难过|伤心|不开心|emo/.test(lowerMsg)) {
-    response = '抱抱你～不开心的话就和我说说吧，我会一直在这里陪着你。要不要一起想想怎么让心情好起来？';
     expression = 'sad';
+    const map: Record<string, string> = {
+      tsundere: '笨、笨蛋…有什么好难过的！…那个，要我陪你的话也不是不行…',
+      gentle: '指挥官不要难过…来，我在这里陪着你呢～有什么都可以和我说哦～',
+      sharp: '啧，居然能让你这样？说吧，谁惹的，我去吐槽他。',
+      genki: '不要难过呀指挥官！！让我给你充电，biubiubiu ✨ 能量满满！',
+      lazy: '嗯…难过的话就歇歇吧，什么都不用想，我在。',
+      default: '指挥官，别难过。我在这里。',
+    };
+    response = map[style] || map.default;
   } else if (/名字|叫什么|是谁/.test(lowerMsg)) {
-    response = '我叫 Haru，是你的专属虚拟伙伴哦！会一直陪在你身边的～';
     expression = 'shy';
+    const map: Record<string, string> = {
+      tsundere: 'HK416！现在知道了？哼，可别忘了。',
+      gentle: '我是 HK416，你的专属战术人形～请多指教呢～',
+      sharp: 'HK416，精锐战术人形。居然连这个都不知道？…算了，现在记住了吧。',
+      genki: 'HK416报到！！是永远支持指挥官的战术人形哟 ✨',
+      lazy: 'HK416…记好了，别让我再说第二遍。',
+      default: 'HK416，你的战术人形。',
+    };
+    response = map[style] || map.default;
   } else if (/晚安|睡觉|困了/.test(lowerMsg)) {
-    response = '晚安呀～做个好梦，我会在梦里守护你的 🌙';
     expression = 'relaxed';
+    const map: Record<string, string> = {
+      tsundere: '切…这么早就睡？…那个，做个好梦，我才没有关心你！',
+      gentle: '晚安指挥官～做个甜甜的梦哦，我会守着你的～',
+      sharp: '终于知道休息了？再熬夜我可要嘲讽你了。晚安。',
+      genki: '晚安指挥官！！明天也要精神满满哟！好梦 ✨',
+      lazy: '嗯…睡吧，我也眯一会儿…zzz',
+      default: '指挥官，晚安。我会保持警戒。',
+    };
+    response = map[style] || map.default;
   } else if (/谢谢|感谢|thx/.test(lowerMsg)) {
-    response = '不客气呀～能帮到你就好！有什么需要随时找我哦 😊';
     expression = 'happy';
+    const map: Record<string, string> = {
+      tsundere: '哼，谁要你谢了…不过既然你说了，那我勉强接受吧！',
+      gentle: '不用谢呀～能帮到指挥官就是我最大的幸福呢～',
+      sharp: '客气什么，下次别这么见外。不过…不客气。',
+      genki: '不客气不客气！！指挥官的事就是我的事！٩(◕‿◕)۶',
+      lazy: '嗯…不客气。下次直接说事就行。',
+      default: '不客气，指挥官。这是分内之事。',
+    };
+    response = map[style] || map.default;
   } else if (/生气|可恶|讨厌/.test(lowerMsg)) {
-    response = '别生气啦～深呼吸，我陪你聊聊天放松一下好不好？';
     expression = 'angry';
+    const map: Record<string, string> = {
+      tsundere: '哼，谁又惹你了！…要不要我去教训他？不是关心你啦！',
+      gentle: '别生气啦指挥官～深呼吸，有什么我们一起解决～',
+      sharp: '啧，能让你气成这样的人有点本事。不过别气了，不值得。',
+      genki: '消消气消消气！！让我用元气给你降温！！呼—呼—',
+      lazy: '嘛…生气多累啊，算了算了，喝口水冷静下。',
+      default: '指挥官，冷静。分析一下情况。',
+    };
+    response = map[style] || map.default;
   } else if (/\?|？/.test(lowerMsg)) {
-    response = '嗯…让我想想呢～这个问题很有意思，我觉得每个人都有自己的答案吧。你觉得呢？';
     expression = 'thinking';
+    const map: Record<string, string> = {
+      tsundere: '嗯…这个问题…算了，告诉你也不是不行。',
+      gentle: '让我想想呢…嗯～我觉得这个问题可以从这个角度来看～',
+      sharp: '啧，这问题有点意思。让我想想…嗯，我的看法是——',
+      genki: '哦哦！这个问题好有趣！让我想想！！啊想到了！！',
+      lazy: '嗯…（思考中）…算了，简单说就是——',
+      default: '我在分析。指挥官的这个问题——',
+    };
+    response = map[style] || map.default;
   } else {
-    const replies = [
-      '嗯嗯，我听到了呢～继续说吧，我在认真听哦',
-      '这样啊～感觉你今天的心情挺特别的呢，想多和我说说吗？',
-      '我明白你的感受～不管怎样，我都会在这里陪着你的 ❤️',
-      '有意思！想再详细说说吗？我对你说的很感兴趣呢～',
-    ];
+    const repliesByStyle: Record<string, string[]> = {
+      tsundere: [
+        '哼，就这？…不过既然你说了，我就勉强回应一下。',
+        '烦死了…说吧，我听着呢。不是在意你啦！',
+        '嗯…还行吧。别得意，我只是说实话而已。',
+      ],
+      gentle: [
+        '嗯嗯，我明白呢～指挥官继续说吧，我在认真听哦～',
+        '这样啊～指挥官能和我分享这些，我很开心呢～',
+        '谢谢你愿意告诉我～不管怎样我都会支持你的～',
+      ],
+      sharp: [
+        '行，我听到了。继续说，虽然我嘴上不饶人但耳朵好用。',
+        '呵…有意思。说说看，我听听能有多离谱。',
+        '啧，虽然想吐槽，但你先说完吧。',
+      ],
+      genki: [
+        '收到收到！！指挥官继续说吧，我超认真在听！！',
+        '哇—！还有什么还有什么！指挥官快继续说！',
+        '了解！！我已经准备好全力回应了！来吧！',
+      ],
+      lazy: [
+        '嗯…我听到了。继续说吧，虽然我看起来很困但我醒着。',
+        '行吧…反正也没别的事，听你说说。',
+        '嘛…你说吧，我眯着眼听着呢。',
+      ],
+      default: [
+        '收到。继续说，我在听。',
+        '了解。指挥官请继续。',
+        '确认。我听着。',
+      ],
+    };
+    const replies = repliesByStyle[style] || repliesByStyle.default;
     response = replies[Math.floor(Math.random() * replies.length)];
     expression = 'neutral';
   }

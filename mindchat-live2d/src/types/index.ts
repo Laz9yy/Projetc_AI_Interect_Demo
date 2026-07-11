@@ -65,6 +65,17 @@ export interface ChatState {
   currentExpression: ExpressionType;
 }
 
+// ===== 性格预设类型 =====
+export interface PersonalityPreset {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string;
+  color: string;
+  /** 注入到 systemPrompt 的语气调整文本 */
+  promptAddition: string;
+}
+
 // ===== 表情动作时序配置 =====
 export const EXPRESSION_TIMING = {
   /** inferExpression 防抖窗口间隔 (ms) */

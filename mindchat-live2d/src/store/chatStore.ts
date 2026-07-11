@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { ChatMessage, ExpressionType } from '../types';
 import { streamChat, simulateChat } from '../services/ai';
-import { useSettingsStore } from './settingsStore';
+import { useSettingsStore, buildSystemPrompt } from './settingsStore';
+import { usePersonalityStore } from './personalityStore';
 import { inferExpression } from '../data/expressions';
 
 interface ChatStore {
@@ -90,7 +91,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (settings.isConfigured) {
         // ===== AI 流式模式（带防抖）=====
         const allMsgs = [...messages];
-        const stream = streamChat(allMsgs, settings.config);
+        const personalityId = usePersonalityStore.getState().activeId;
+        const effectiveConfig = {
+          ...settings.config,
+          systemPrompt: buildSystemPrompt(settings.config.systemPrompt, personalityId),
+        };
+        const stream = streamChat(allMsgs, effectiveConfig);
 
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -123,7 +129,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
       } else {
         // ===== 离线模拟模式（带防抖）=====
-        const stream = simulateChat(content);
+        const personalityId = usePersonalityStore.getState().activeId;
+        const stream = simulateChat(content, personalityId);
 
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
         let emittedExpr = '';

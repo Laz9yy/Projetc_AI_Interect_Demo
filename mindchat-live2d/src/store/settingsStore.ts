@@ -1,5 +1,14 @@
 import { create } from 'zustand';
 import type { AIConfig } from '../types';
+import { getPersonalityById } from '../data/personalities';
+
+/** 合并基础 prompt 与性格层，返回最终 systemPrompt */
+export function buildSystemPrompt(basePrompt: string, personalityId: string | null): string {
+  if (!personalityId || personalityId === 'default') return basePrompt;
+  const preset = getPersonalityById(personalityId);
+  if (!preset || !preset.promptAddition) return basePrompt;
+  return basePrompt + '\n\n' + preset.promptAddition;
+}
 
 // ===== 默认配置 =====
 const DEFAULT_CONFIG: AIConfig = {
