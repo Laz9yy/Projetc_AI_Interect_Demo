@@ -1,5 +1,7 @@
 import type { AIConfig, ChatMessage } from '../types';
 import { inferExpression } from '../data/expressions';
+import { buildAffectionPrompt } from '../store/affectionStore';
+import { useAffectionStore } from '../store/affectionStore';
 
 // ===== Token 估算（简易版，中英文混合估算）=====
 function estimateTokens(text: string): number {
@@ -178,6 +180,10 @@ export async function* simulateChat(
   // 根据性格选择回复风格
   const style = personalityId || 'default';
 
+  // 好感度信息
+  const affection = useAffectionStore.getState().affection;
+  const useAffectionateFlavor = affection >= 80;
+
   if (/你好|hi|hello|嗨/.test(lowerMsg)) {
     expression = 'happy';
     const map: Record<string, string> = {
@@ -302,6 +308,34 @@ export async function* simulateChat(
     const replies = repliesByStyle[style] || repliesByStyle.default;
     response = replies[Math.floor(Math.random() * replies.length)];
     expression = 'neutral';
+  }
+
+  // ===== 好感度话术增强 =====
+  // 替换称呼：好感度 100 时"指挥官"变为"亲爱的/达令"
+  if (affection >= 100) {
+    const titles = ['亲爱的', '达令'];
+    const title = titles[Math.floor(Math.random() * titles.length)];
+    response = response.replace(/指挥官/g, title);
+  }
+
+  // 好感度 ≥ 80 时追加情话后缀（概率 40%）
+  if (affection >= 80 && Math.random() < 0.4) {
+    const flirts = [
+      '…（小声）其实，和你聊天真的很开心。',
+      '…不管怎样，我都会在你身边的。',
+      '…你知道吗，你对我而言很重要…',
+      '…指挥官真是的，让我越来越在意你了…',
+    ];
+    response += flirts[Math.floor(Math.random() * flirts.length)];
+  }
+  // 好感度 70-79 时追加关心后缀（概率 30%）
+  else if (affection >= 70 && Math.random() < 0.3) {
+    const cares = [
+      '…指挥官最近还好吗？',
+      '…有什么需要帮忙的，随时叫我。',
+      '…记得注意休息哦。',
+    ];
+    response += cares[Math.floor(Math.random() * cares.length)];
   }
 
   // 逐字输出

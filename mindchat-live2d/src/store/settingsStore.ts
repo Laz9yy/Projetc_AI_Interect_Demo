@@ -1,13 +1,31 @@
 import { create } from 'zustand';
 import type { AIConfig } from '../types';
 import { getPersonalityById } from '../data/personalities';
+import { buildAffectionPrompt } from './affectionStore';
+import { useAffectionStore } from './affectionStore';
+import { loadChatHistory, getChatSummary } from '../services/chatHistory';
 
-/** 合并基础 prompt 与性格层，返回最终 systemPrompt */
+/** 合并基础 prompt、性格层、好感度层，返回最终 systemPrompt */
 export function buildSystemPrompt(basePrompt: string, personalityId: string | null): string {
-  if (!personalityId || personalityId === 'default') return basePrompt;
-  const preset = getPersonalityById(personalityId);
-  if (!preset || !preset.promptAddition) return basePrompt;
-  return basePrompt + '\n\n' + preset.promptAddition;
+  let prompt = basePrompt;
+  // 性格层
+  if (personalityId && personalityId !== 'default') {
+    const preset = getPersonalityById(personalityId);
+    if (preset?.promptAddition) {
+      prompt += '\n\n' + preset.promptAddition;
+    }
+  }
+  // 好感度层
+  const affection = useAffectionStore.getState().affection;
+  if (affection > 0) {
+    prompt += '\n\n' + buildAffectionPrompt(affection);
+  }
+  // 最近对话摘要
+  const history = loadChatHistory();
+  if (history.length > 0) {
+    prompt += getChatSummary(history);
+  }
+  return prompt;
 }
 
 // ===== 默认配置 =====

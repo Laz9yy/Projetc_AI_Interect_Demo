@@ -3,7 +3,9 @@ import type { ChatMessage, ExpressionType } from '../types';
 import { streamChat, simulateChat } from '../services/ai';
 import { useSettingsStore, buildSystemPrompt } from './settingsStore';
 import { usePersonalityStore } from './personalityStore';
+import { useAffectionStore } from './affectionStore';
 import { inferExpression } from '../data/expressions';
+import { saveChatHistory, loadChatHistory } from '../services/chatHistory';
 
 interface ChatStore {
   messages: ChatMessage[];
@@ -14,6 +16,7 @@ interface ChatStore {
   sendMessage: (content: string) => Promise<void>;
   setExpression: (expr: ExpressionType) => void;
   clearMessages: () => void;
+  loadHistory: () => void;
 }
 
 // 生成唯一 ID
@@ -23,7 +26,7 @@ const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 let holdTimerRef: number | null = null;
 
 export const useChatStore = create<ChatStore>((set, get) => ({
-  messages: [],
+  messages: loadChatHistory(),
   isStreaming: false,
   currentExpression: 'neutral' as ExpressionType,
 
@@ -35,7 +38,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       timestamp: Date.now(),
       expression,
     };
-    set((s) => ({ messages: [...s.messages, msg] }));
+    set((s) => {
+      const newMessages = [...s.messages, msg];
+      // 持久化保存
+      saveChatHistory(newMessages);
+      return { messages: newMessages };
+    });
+  },
+
+  loadHistory: () => {
+    const history = loadChatHistory();
+    if (history.length > 0) {
+      set({ messages: history });
+    }
   },
 
   sendMessage: async (content: string) => {
@@ -54,6 +69,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     // 添加用户消息
     addMessage('user', content);
+
+    // ★ 用户每发送一次消息，好感度 +0.5
+    useAffectionStore.getState().increase(0.5);
 
     // 重新获取最新消息列表（含刚添加的用户消息）
     const { messages } = get();
@@ -170,6 +188,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       set((s) => ({ isStreaming: false, currentExpression: lastExpr as ExpressionType }));
 
+      // 流式完成后持久化保存完整记录
+      saveChatHistory(get().messages);
+
       // 优化5: HOLD → IDLE: 先 relaxed 过渡 500ms，再回归 neutral
       holdTimerRef = window.setTimeout(() => {
         set({ currentExpression: 'relaxed' as ExpressionType });
@@ -200,6 +221,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   setExpression: (expr) => set({ currentExpression: expr }),
 
-  clearMessages: () =>
-    set({ messages: [], currentExpression: 'neutral' as ExpressionType }),
+  clearMessages: () => {
+    set({ messages: [], currentExpression: 'neutral' as ExpressionType });
+    saveChatHistory([]);
+  },
 }));

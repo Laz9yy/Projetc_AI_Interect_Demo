@@ -8,6 +8,8 @@ import SettingsPanel from './components/settings/SettingsPanel';
 import { useChatStore } from './store/chatStore';
 import { characterPresets } from './data/characters';
 import { expressionList } from './data/expressions';
+import { loadChatHistory } from './services/chatHistory';
+import { useProactiveChat } from './hooks/useProactiveChat';
 
 function App() {
   const { currentExpression } = useChatStore();
@@ -18,15 +20,20 @@ function App() {
   const character = characterPresets[selectedChar];
   const currentExprConfig = expressionList.find((e) => e.id === currentExpression);
 
-  // 每次页面刷新先清空历史消息再发送问候语
+  // ★ 启动主动聊天 Hook（好感度 ≥ 70 时生效）
+  useProactiveChat();
+
+  // 每次页面刷新：加载历史记录；若历史为空则显示问候语
   useEffect(() => {
-    useChatStore.getState().clearMessages();
-
-    const timer = setTimeout(() => {
-      useChatStore.getState().addMessage('assistant', character.greeting, 'shy');
-    }, 800);
-
-    return () => clearTimeout(timer);
+    const history = loadChatHistory();
+    if (history.length === 0) {
+      useChatStore.getState().clearMessages();
+      const timer = setTimeout(() => {
+        useChatStore.getState().addMessage('assistant', character.greeting, 'shy');
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+    // 已有历史记录，直接使用（已通过 store 初始化加载）
   }, [character.greeting]);
 
   // 拖拽分栏 —— 鼠标按下把手开始跟踪

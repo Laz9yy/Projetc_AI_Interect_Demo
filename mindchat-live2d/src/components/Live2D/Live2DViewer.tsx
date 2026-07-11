@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import * as PIXI from 'pixi.js';
 import type { Live2DModel } from 'pixi-live2d-display';
 import type { ExpressionType } from '../../types';
+import { useAffectionStore } from '../../store/affectionStore';
 
 // pixi-live2d-display 要求 PIXI 暴露到 window
 (window as any).PIXI = PIXI;
@@ -465,7 +466,9 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
         // P2-1: 视觉反馈脉冲
         setTouchPulse(true);
         setTimeout(() => setTouchPulse(false), 400);
-        console.log(`[Live2D] 触摸交互: hit=${hitArea}, motion=${idx}`);
+        // ★ 点击人物模型，好感度 +0.5
+        useAffectionStore.getState().increase(0.5);
+        console.log(`[Live2D] 触摸交互: hit=${hitArea}, motion=${idx}, 好感度+0.5`);
       }
     }, 'touch');
   }, [isLoading, error, callModelSafely, tryPlayMotion]);

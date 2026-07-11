@@ -2,15 +2,19 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSettingsStore } from '../../store/settingsStore';
 import { usePersonalityStore } from '../../store/personalityStore';
+import { useAffectionStore } from '../../store/affectionStore';
 import { getPersonalityById } from '../../data/personalities';
 import { aiProviders, getProvider } from '../../services/providers';
 import PersonalityEditor from './PersonalityEditor';
+import AffectionPanel from './AffectionPanel';
 
 const SettingsPanel: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [showPersonalityEditor, setShowPersonalityEditor] = useState(false);
+  const [showAffectionPanel, setShowAffectionPanel] = useState(false);
   const { config, isConfigured, updateConfig, resetConfig } = useSettingsStore();
   const { activeId } = usePersonalityStore();
+  const affection = useAffectionStore((s) => s.affection);
 
   const currentProvider = getProvider(config.provider);
   const activePersonality = getPersonalityById(activeId || 'default');
@@ -127,7 +131,10 @@ const SettingsPanel: React.FC = () => {
             {/* 人物性格修改入口 */}
             <div className="mb-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
               <button
-                onClick={() => setShowPersonalityEditor(!showPersonalityEditor)}
+                onClick={() => {
+                  setShowPersonalityEditor(!showPersonalityEditor);
+                  if (showAffectionPanel) setShowAffectionPanel(false);
+                }}
                 className="w-full px-3 py-2.5 rounded-lg text-xs transition-all text-left flex items-center justify-between"
                 style={{
                   background: showPersonalityEditor
@@ -153,6 +160,42 @@ const SettingsPanel: React.FC = () => {
               <AnimatePresence>
                 {showPersonalityEditor && (
                   <PersonalityEditor onClose={() => setShowPersonalityEditor(false)} />
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* 好感度查询入口 */}
+            <div className="mb-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <button
+                onClick={() => {
+                  setShowAffectionPanel(!showAffectionPanel);
+                  if (showPersonalityEditor) setShowPersonalityEditor(false);
+                }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs transition-all text-left flex items-center justify-between"
+                style={{
+                  background: showAffectionPanel
+                    ? 'rgba(255,107,157,0.1)'
+                    : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${showAffectionPanel ? 'rgba(255,107,157,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                }}
+              >
+                <span className="flex items-center gap-2">
+                  <span>❤</span>
+                  <span className="text-white/60">好感度查询</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-white/30 text-[10px]">
+                    好感度 {Math.round(affection)}
+                  </span>
+                  <span className="text-white/20 text-[10px]">
+                    {showAffectionPanel ? '▲' : '▼'}
+                  </span>
+                </span>
+              </button>
+
+              <AnimatePresence>
+                {showAffectionPanel && (
+                  <AffectionPanel onClose={() => setShowAffectionPanel(false)} />
                 )}
               </AnimatePresence>
             </div>

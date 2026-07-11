@@ -110,3 +110,17 @@ export const INTERACTION_CONFIG = {
     IDLE: 4,
   } as const,
 } as const;
+
+// ===== 好感度系统类型 =====
+export type AffectionLevel = 'stranger' | 'familiar' | 'close' | 'intimate' | 'lover';
+
+export interface AffectionConfig {
+  level: AffectionLevel;
+  label: string;
+  labelCn: string;
+  emoji: string;
+  color: string;
+  title: string;
+  proactiveEnabled: boolean;
+  proactiveType: 'greeting' | 'flirt' | 'none';
+}
