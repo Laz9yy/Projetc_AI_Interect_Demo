@@ -6,7 +6,7 @@ interface CharacterOverlayProps {
   status: string;
 }
 
-const CharacterOverlay: React.FC<CharacterOverlayProps> = ({ name, status }) => {
+const CharacterOverlay: React.FC<CharacterOverlayProps> = React.memo(({ name, status }) => {
   return (
     <motion.div
       className="absolute top-4 left-6 z-20"
@@ -26,6 +26,6 @@ const CharacterOverlay: React.FC<CharacterOverlayProps> = ({ name, status }) => 
       </p>
     </motion.div>
   );
-};
+});
 
 export default CharacterOverlay;

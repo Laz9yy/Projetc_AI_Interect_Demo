@@ -6,7 +6,7 @@ interface ChatBubbleProps {
   message: ChatMessage;
 }
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
+const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({ message }) => {
   const isUser = message.role === 'user';
 
   return (
@@ -50,6 +50,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
       </div>
     </motion.div>
   );
-};
+});
 
 export default ChatBubble;

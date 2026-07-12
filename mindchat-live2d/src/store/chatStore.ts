@@ -77,15 +77,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const { messages } = get();
 
     // 发送消息时显示共情表情（若有强情绪）或 thinking
+    // 不再设 1.5s thinking timer — AI 流式的 expression 字段会自然接管
     set({ currentExpression: empathyExpr });
-
-    // 共情表情保持 1.5s，之后过渡到 thinking（让 AI 回复接管）
-    let empathyTimer: ReturnType<typeof setTimeout> | null = null;
-    if (empathyExpr !== 'thinking') {
-      empathyTimer = setTimeout(() => {
-        set({ currentExpression: 'thinking' as ExpressionType });
-      }, 1500);
-    }
 
     // 创建 AI 回复占位
     const aiMsgId = uid();
@@ -107,7 +100,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       let lastExpr: string = get().currentExpression;
 
       if (settings.isConfigured) {
-        // ===== AI 流式模式（带防抖）=====
+        // ===== AI 流式模式（rAF 批量提交 + 表情防抖）=====
         const allMsgs = [...messages];
         const personalityId = usePersonalityStore.getState().activeId;
         const effectiveConfig = {
@@ -116,75 +109,127 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         };
         const stream = streamChat(allMsgs, effectiveConfig);
 
+        // rAF 批量：不在每个 chunk 更新 React，累积后在帧回调中提交
+        let accumulatedText = '';
+        let rafScheduled = false;
+        let pendingExpr = '';
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
         for await (const chunk of stream) {
-          // 更新消息内容（每次 chunk 都更新文本）— 不可变更新
-          set((s) => ({
-            messages: s.messages.map((msg) =>
-              msg.id === aiMsgId
-                ? { ...msg, content: msg.content + chunk.text, isTyping: false }
-                : msg
-            ),
-          }));
+          accumulatedText += chunk.text;
+          const currentExpr = chunk.expression;
 
-          // 防抖窗口内跳过表达式更新
-          if (debounceTimer !== null) continue;
-
-          // 更新表达式 — 修复比较逻辑，避免死代码
-          const expr = chunk.expression;
-          if (expr !== lastExpr) {
-            lastExpr = expr;
-            set((s) => ({
-              messages: s.messages.map((msg) =>
-                msg.id === aiMsgId ? { ...msg, expression: expr } : msg
-              ),
-              currentExpression: expr as ExpressionType,
-            }));
+          if (currentExpr !== lastExpr) {
+            pendingExpr = currentExpr;
           }
 
-          debounceTimer = setTimeout(() => { debounceTimer = null; }, 800);
+          if (!rafScheduled) {
+            rafScheduled = true;
+            requestAnimationFrame(() => {
+              rafScheduled = false;
+
+              // ★ O(1) 数组更新：仅 shallow-copy + 替换最后一个元素
+              set((s) => {
+                const msgs = s.messages;
+                const last = msgs.length - 1;
+                if (last < 0 || msgs[last].id !== aiMsgId) return {};
+                const updated = msgs.slice();
+                updated[last] = { ...msgs[last], content: accumulatedText, isTyping: false };
+                return { messages: updated };
+              });
+
+              // 表达式仅在防抖窗口过后且确已变化时提交
+              if (debounceTimer === null && pendingExpr !== '' && pendingExpr !== lastExpr) {
+                lastExpr = pendingExpr;
+                set((s) => {
+                  const msgs = s.messages;
+                  const last = msgs.length - 1;
+                  if (last < 0 || msgs[last].id !== aiMsgId) return {};
+                  const updated = msgs.slice();
+                  updated[last] = { ...msgs[last], expression: pendingExpr };
+                  return { messages: updated, currentExpression: pendingExpr as ExpressionType };
+                });
+                debounceTimer = setTimeout(() => { debounceTimer = null; }, 800);
+              }
+            });
+          }
         }
+
+        // flush 最后一批
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            set((s) => {
+              const msgs = s.messages;
+              const last = msgs.length - 1;
+              if (last < 0 || msgs[last].id !== aiMsgId) return {};
+              const updated = msgs.slice();
+              updated[last] = { ...msgs[last], content: accumulatedText, isTyping: false };
+              return { messages: updated };
+            });
+            resolve();
+          });
+        });
       } else {
-        // ===== 离线模拟模式（带防抖）=====
+        // ===== 离线模拟模式（rAF 批量提交）=====
         const personalityId = usePersonalityStore.getState().activeId;
         const stream = simulateChat(content, personalityId);
 
+        let accumulatedText = '';
+        let rafScheduled = false;
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
         let emittedExpr = '';
 
         for await (const chunk of stream) {
-          lastExpr = chunk.expression;
-
-          // 更新消息内容 — 不可变更新
-          set((s) => ({
-            messages: s.messages.map((msg) =>
-              msg.id === aiMsgId
-                ? { ...msg, content: msg.content + chunk.text, isTyping: false }
-                : msg
-            ),
-          }));
-
-          // 防抖窗口内跳过
-          if (debounceTimer !== null) continue;
-
-          // 更新表达式 — 不可变更新
+          accumulatedText += chunk.text;
           if (chunk.expression !== emittedExpr) {
             emittedExpr = chunk.expression;
-            set((s) => ({
-              messages: s.messages.map((msg) =>
-                msg.id === aiMsgId ? { ...msg, expression: chunk.expression } : msg
-              ),
-              currentExpression: chunk.expression as ExpressionType,
-            }));
           }
 
-          debounceTimer = setTimeout(() => { debounceTimer = null; }, 800);
-        }
-      }
+          if (!rafScheduled) {
+            rafScheduled = true;
+            requestAnimationFrame(() => {
+              rafScheduled = false;
 
-      // 清除共情 timer（AI 已开始回复，无需手动过渡）
-      if (empathyTimer) clearTimeout(empathyTimer);
+              set((s) => {
+                const msgs = s.messages;
+                const last = msgs.length - 1;
+                if (last < 0 || msgs[last].id !== aiMsgId) return {};
+                const updated = msgs.slice();
+                updated[last] = { ...msgs[last], content: accumulatedText, isTyping: false };
+                return { messages: updated };
+              });
+
+              if (debounceTimer === null && emittedExpr !== '' && emittedExpr !== lastExpr) {
+                lastExpr = emittedExpr;
+                set((s) => {
+                  const msgs = s.messages;
+                  const last = msgs.length - 1;
+                  if (last < 0 || msgs[last].id !== aiMsgId) return {};
+                  const updated = msgs.slice();
+                  updated[last] = { ...msgs[last], expression: emittedExpr };
+                  return { messages: updated, currentExpression: emittedExpr as ExpressionType };
+                });
+                debounceTimer = setTimeout(() => { debounceTimer = null; }, 800);
+              }
+            });
+          }
+        }
+
+        // flush
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            set((s) => {
+              const msgs = s.messages;
+              const last = msgs.length - 1;
+              if (last < 0 || msgs[last].id !== aiMsgId) return {};
+              const updated = msgs.slice();
+              updated[last] = { ...msgs[last], content: accumulatedText, isTyping: false };
+              return { messages: updated };
+            });
+            resolve();
+          });
+        });
+      }
 
       set((s) => ({ isStreaming: false, currentExpression: lastExpr as ExpressionType }));
 
@@ -202,20 +247,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }, 5000);
     } catch (err) {
       console.error('sendMessage 错误:', err);
-      set((s) => ({
-        messages: s.messages.map((msg) =>
-          msg.id === aiMsgId
-            ? {
-                ...msg,
-                content: `❌ ${err instanceof Error ? err.message : '未知错误'}`,
-                isTyping: false,
-                expression: 'sad' as ExpressionType,
-              }
-            : msg
-        ),
-        isStreaming: false,
-        currentExpression: 'sad' as ExpressionType,
-      }));
+      set((s) => {
+        const msgs = s.messages;
+        const last = msgs.length - 1;
+        if (last >= 0 && msgs[last].id === aiMsgId) {
+          const updated = msgs.slice();
+          updated[last] = {
+            ...msgs[last],
+            content: `❌ ${err instanceof Error ? err.message : '未知错误'}`,
+            isTyping: false,
+            expression: 'sad' as ExpressionType,
+          };
+          return { messages: updated, isStreaming: false, currentExpression: 'sad' as ExpressionType };
+        }
+        return { isStreaming: false, currentExpression: 'sad' as ExpressionType };
+      });
     }
   },
 

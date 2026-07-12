@@ -24,6 +24,7 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
   const [touchPulse, setTouchPulse] = useState(false); // P2-1: 触摸视觉反馈
   const originalModelWidthRef = useRef(1024);
   const originalModelHeightRef = useRef(1024);
+  const [loginDone, setLoginDone] = useState(false); // Fix1: 加载时序保护 — login 动画期间阻塞 idle/emotion
 
   // 修复4: modelUrl 变化时重置状态，清除旧错误与初始化标志
   React.useEffect(() => {
@@ -154,6 +155,35 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
         return origDestroy?.apply(model, args);
       };
       // ===== 防御结束 =====
+
+      // Fix4: 监听动作完成事件，精确释放 priority（idle 循环动作除外）
+      try {
+        (model as any).on?.('motionFinish', () => {
+          if (motionPriorityRef.current !== 4) {
+            motionPriorityRef.current = 0;
+            console.debug('[Live2D] motionFinish 事件: priority 已释放');
+          }
+        });
+      } catch {
+        console.debug('[Live2D] motionFinish 事件不可用，保留 timeout 兜底');
+      }
+
+      // Fix3: 预加载所有动作文件到浏览器缓存，避免首次播放掉帧
+      const motionFiles = [
+        'motions/daiji_idle_01.mtn',
+        'motions/login.mtn', 'motions/shake.mtn',
+        'motions/touch_1.mtn', 'motions/touch_2.mtn',
+        'motions/touch_3.mtn', 'motions/touch_4.mtn', 'motions/touch_5.mtn',
+        'motions/wait_1.mtn', 'motions/wait_2.mtn',
+        'motions/wedding.mtn', 'motions/wedding_touch.mtn',
+      ];
+      const motionBase = modelUrl.substring(0, modelUrl.lastIndexOf('/') + 1);
+      motionFiles.forEach((file, i) => {
+        setTimeout(() => {
+          fetch(motionBase + file, { mode: 'cors' }).catch(() => {});
+        }, i * 100);
+      });
+      console.log('[Live2D] 动作文件预加载已启动');
 
       setIsLoading(false);
       console.log('[Live2D C2] 加载成功 · 立绘尺寸', {
@@ -358,7 +388,7 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
 
   // 监听 expression prop 变化，驱动模型面部表情 + 身体动作
   useEffect(() => {
-    if (isLoading || error) return;
+    if (isLoading || error || !loginDone) return;
 
     // 初始化：expression='neutral' + lastExprRef='neutral' 时也播放一次 idle
     const isInitial = lastExprRef.current === 'neutral' && expression === 'neutral' && lastMotionKeyRef.current === '';
@@ -407,14 +437,21 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
         );
       }
     });
-  }, [expression, isLoading, error, callModelSafely, tryPlayMotion]);
+  }, [expression, isLoading, error, loginDone, callModelSafely, tryPlayMotion]);
 
   // 应用启动时播放 login 登场动画 (P2-2: 优先级1 最高)
+  // Fix1: login 播放期间 setLoginDone 控制 emotion/idle 不启动
   useEffect(() => {
     if (isLoading || error) return;
     const timer = setTimeout(() => {
       callModelSafely((model) => {
-        tryPlayMotion(model, '', 0, 1, 4000);
+        if (tryPlayMotion(model, '', 0, 1, 4000)) {
+          // login 播放成功，4秒后释放 emotion/idle
+          setTimeout(() => { setLoginDone(true); }, 4000);
+        } else {
+          // login 被拒绝（极端情况），直接释放
+          setLoginDone(true);
+        }
         lastMotionTimeRef.current = Date.now();
         lastMotionKeyRef.current = ':0';
         console.log('[Live2D] 登录动画播放: login.mtn (group="" index=0)');
@@ -486,20 +523,28 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
   const idleTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (isLoading || error) return;
+    if (isLoading || error || !loginDone) return;
     if (expression !== 'neutral') {
       if (idleTimerRef.current) { clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
       return;
     }
+    // Fix2: idle 循环不互斥 — 仅被更高优先级动作(1=login,2=touch,3=emotion)阻塞
     const playIdle = () => {
       callModelSafely((model) => {
-        tryPlayMotion(model, 'idle', 0, 4, 3000);
+        const currentPrio = motionPriorityRef.current;
+        if (currentPrio > 0 && currentPrio < 4) {
+          console.debug(`[Live2D] idle 跳过: 更高优先级动作 P${currentPrio} 播放中`);
+          return;
+        }
+        motionPriorityRef.current = 4;
+        model.motion('idle', 0);
+        console.debug('[Live2D] idle 循环播放');
       }, 'idle-loop');
-      idleTimerRef.current = window.setTimeout(playIdle, 2500); // 提前500ms重播无缝衔接
+      idleTimerRef.current = window.setTimeout(playIdle, 2500);
     };
     playIdle();
     return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
-  }, [expression, isLoading, error, callModelSafely, tryPlayMotion]);
+  }, [expression, isLoading, error, loginDone, callModelSafely, tryPlayMotion]);
 
   // ===== P1-2: 空闲超时自发小动作 =====
   const autoMotionTimerRef = useRef<number | null>(null);
@@ -514,7 +559,7 @@ const Live2DViewer: React.FC<Live2DViewerProps> = ({ modelUrl, expression, class
     autoMotionTimerRef.current = window.setTimeout(() => {
       callModelSafely((model) => {
         const m = IDLE_AUTO_MOTIONS[Math.floor(Math.random() * IDLE_AUTO_MOTIONS.length)];
-        tryPlayMotion(model, m.group, m.index, 3, 1500);
+        tryPlayMotion(model, m.group, m.index, 5, 1500);
         console.log(`[Live2D] 自发动作: group="${m.group}" index=${m.index}`);
       }, 'auto-motion');
       scheduleAutoMotion();

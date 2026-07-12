@@ -11,10 +11,13 @@ const ChatWindow: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  // 自动滚动
+  // 自动滚动 — 使用 scrollIntoView 避免 scrollTop 强制同步布局
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const lastChild = scrollRef.current.lastElementChild;
+      if (lastChild) {
+        lastChild.scrollIntoView({ block: 'end', behavior: 'instant' });
+      }
     }
   }, [messages]);
 

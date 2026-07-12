@@ -7,7 +7,7 @@ interface QuickRepliesProps {
   disabled?: boolean;
 }
 
-const QuickReplies: React.FC<QuickRepliesProps> = ({ replies, onSelect, disabled }) => {
+const QuickReplies: React.FC<QuickRepliesProps> = React.memo(({ replies, onSelect, disabled }) => {
   return (
     <div
       className="flex-shrink-0 overflow-x-auto scrollbar-none whitespace-nowrap"
@@ -43,7 +43,7 @@ const QuickReplies: React.FC<QuickRepliesProps> = ({ replies, onSelect, disabled
       </div>
     </div>
   );
-};
+});
 
 // 预设快捷回复（仅文字，无 emoji）
 export const defaultQuickReplies = [

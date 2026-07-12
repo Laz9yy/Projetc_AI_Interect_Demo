@@ -1,6 +1,5 @@
 import type { AIConfig, ChatMessage } from '../types';
 import { inferExpression } from '../data/expressions';
-import { buildAffectionPrompt } from '../store/affectionStore';
 import { useAffectionStore } from '../store/affectionStore';
 
 // ===== Token 估算（简易版，中英文混合估算）=====
@@ -138,6 +137,12 @@ export async function* streamChat(
   let fullText = '';
   let buffer = '';
 
+  // 表达式防振荡状态
+  let lastConfirmedExpr = 'thinking';
+  let pendingExpr = '';
+  let pendingCount = 0;     // 连续命中同一非 neutral 的次数
+  let exprEvalCounter = 0;  // 降频计数器
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -158,7 +163,41 @@ export async function* streamChat(
         const content = data.choices?.[0]?.delta?.content;
         if (content) {
           fullText += content;
-          const expr = fullText.length >= 8 ? inferExpression(fullText) : 'thinking';
+
+          // ★ 流式表达式防振荡
+          let expr = lastConfirmedExpr;
+          const len = fullText.length;
+
+          if (len < 15) {
+            // 前 15 个字符锁定为 thinking，避免思考阶段不明时频繁切换
+            expr = 'thinking';
+          } else {
+            exprEvalCounter++;
+            // 降低评估频率：每 3 个 chunk 才评估一次全文（减少 regex 开销）
+            if (exprEvalCounter % 3 === 0) {
+              const inferred = inferExpression(fullText);
+              if (inferred === 'neutral') {
+                // neutral 直接生效，不做确认
+                lastConfirmedExpr = 'neutral';
+                pendingExpr = '';
+                pendingCount = 0;
+              } else if (inferred === pendingExpr) {
+                // 连续 2 次命中同一非 neutral → 确认切换
+                pendingCount++;
+                if (pendingCount >= 2) {
+                  lastConfirmedExpr = inferred;
+                  pendingExpr = '';
+                  pendingCount = 0;
+                }
+              } else {
+                // 新候选表达式，重置计数
+                pendingExpr = inferred;
+                pendingCount = 1;
+              }
+            }
+            expr = lastConfirmedExpr;
+          }
+
           yield { text: content, expression: expr };
         }
       } catch {
@@ -182,7 +221,6 @@ export async function* simulateChat(
 
   // 好感度信息
   const affection = useAffectionStore.getState().affection;
-  const useAffectionateFlavor = affection >= 80;
 
   if (/你好|hi|hello|嗨/.test(lowerMsg)) {
     expression = 'happy';
